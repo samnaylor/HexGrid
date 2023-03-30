@@ -1,5 +1,7 @@
-import math
+# TODO: Some sort of global game state manager - a singleton object that manages everything
 
+from math import sqrt, sin, cos, radians
+from typing import Generic, TypeVar, Type, Any
 from dataclasses import dataclass
 
 import pygame
@@ -7,17 +9,29 @@ import pygame
 pygame.init()
 
 hex_size = 30
-hex_width = math.sqrt(3) * hex_size
+hex_width = sqrt(3) * hex_size
 hex_height = hex_size * 3 / 2
 hex_spacing_horizontal = hex_width
 hex_spacing_vertical = hex_height
+
+
+T = TypeVar("T")
+
+class Singleton(Generic[T], object):
+    _instance: T | None = None
+    
+    def __new__(cls: Type["Singleton[T]"], *args: Any, **kwargs: Any) -> "Singleton[T]":
+        if cls._instance is None:
+            cls._instance = super(Singleton, cls).__new__(cls, *args, **kwargs)
+
+        return cls._instance
 
 
 def lerp(a: float, b: float, t: float) -> float:
     return a + (b - a) * t
 
 
-@dataclass
+@dataclass(eq=True, unsafe_hash=True)
 class Axial:
     " axial coordinates "
 
@@ -49,7 +63,7 @@ class Axial:
     @staticmethod
     def pixel_to_hex(point: tuple[float, float], *, offset: tuple[float, float] = (0, 0)) -> "Axial":
         px, py = (point[0] + offset[0]), (point[1] + offset[1])
-        q = (math.sqrt(3) / 3 * px - 1 / 3 * py) / hex_size
+        q = (sqrt(3) / 3 * px - 1 / 3 * py) / hex_size
         r = (2 / 3 * py) / hex_size
 
         return Axial.round(Axial(q, r))
@@ -88,21 +102,16 @@ class Axial:
     def to_pixel(self, *, offset: tuple[float, float] = (0, 0)) -> tuple[float, float]:
         ox, oy = offset
 
-        x = hex_size * (math.sqrt(3) * self.q + math.sqrt(3) / 2 * self.r) - ox
+        x = hex_size * (sqrt(3) * self.q + sqrt(3) / 2 * self.r) - ox
         y = hex_size * (3 / 2 * self.r) - oy
 
         return (x, y)
 
-    def __eq__(self, __value: object) -> bool:
-        if not isinstance(__value, Axial):
-            return False
 
-        return (self.q == __value.q) and (self.r == __value.r)
-
-
-@dataclass
+@dataclass(unsafe_hash=True)
 class HexTile:
     coords: Axial
+    obstacle: bool = False
 
     base_colour: tuple[int, int, int] = (0, 0, 0)
     hover_colour: tuple[int, int, int] = (0, 255, 0)
@@ -116,10 +125,30 @@ class HexTile:
         verts: list[tuple[float, float]] = []
 
         for i in range(6):
-            angle = math.radians(60 * i - 30)
-            verts.append((centerx + hex_size * math.cos(angle), centery + hex_size * math.sin(angle)))
+            angle = radians(60 * i - 30)
+            verts.append((centerx + hex_size * cos(angle), centery + hex_size * sin(angle)))
 
         return verts
+
+    def reachable(self, movement: int = 1) -> set[Axial]:
+        " Tiles reachable from here within that movement "
+
+        state = Game()
+
+        visited = set[Axial]()
+        visited.add(self.coords)
+        fringes: list[list[Axial]] = [[self.coords]]
+
+        for k in range(1, movement + 1):
+            fringes.append([])
+            for hex in fringes[k - 1]:
+                for direction in range(6):
+                    neighbour = hex.neighbour(direction)
+                    if (neighbour not in visited) and (not state.store[(int(neighbour.q), int(neighbour.r))].obstacle):
+                        visited.add(neighbour)
+                        fringes[k].append(neighbour)
+
+        return visited
 
     def render(self, surface: pygame.Surface, offset: tuple[float, float]) -> None:
         colour = self.hover_colour if self.is_hover(offset) else self.base_colour
@@ -127,6 +156,25 @@ class HexTile:
 
         pygame.draw.polygon(surface, colour, verts)
         pygame.draw.polygon(surface, self.border_colour, verts, 2)
+
+
+class Game(Singleton):
+    def __init__(self) -> None:
+        self.offset: tuple[float, float] = (-320, -240)
+        self.store: dict[tuple[int, int], HexTile] = {}
+
+        locations: list[tuple[int, int]] = [
+            (0, -3), (1, -3), (2, -3), (3, -3),
+            (-1, -2), (0, -2), (1, -2), (2, -2), (3, -2),
+            (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1), (3, -1),
+            (-3, 0), (-2, 0), (-1, 0), (0, 0), (1, 0), (2, 0), (3, 0),
+            (-3, 1), (-2, 1), (-1, 1), (0, 1), (1, 1), (2, 1),
+            (-3, 2), (-2, 2), (-1, 2), (0, 2), (1, 2),
+            (-3, 3), (-2, 3), (-1, 3), (0, 3)
+        ]
+
+        for (q, r) in locations:
+            self.store[(q, r)] = HexTile(Axial(q, r))
 
 
 def is_quit_event(event: pygame.event.Event) -> bool:
@@ -139,23 +187,8 @@ def main() -> int:
 
     black = (0, 0, 0)
     white = (255, 255, 255)
-    green = (0, 255, 0)
 
-    offset: tuple[float, float] = (-(640 // 2), -(480 // 2))
-    store: dict[tuple[int, int], HexTile] = {}
-    locations: list[tuple[int, int]] = [
-        (0, -3), (1, -3), (2, -3), (3, -3),
-        (-1, -2), (0, -2), (1, -2), (2, -2), (3, -2),
-        (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1), (3, -1),
-        (-3, 0), (-2, 0), (-1, 0), (0, 0), (1, 0), (2, 0), (3, 0),
-        (-3, 1), (-2, 1), (-1, 1), (0, 1), (1, 1), (2, 1),
-        (-3, 2), (-2, 2), (-1, 2), (0, 2), (1, 2),
-        (-3, 3), (-2, 3), (-1, 3), (0, 3)
-    ]
-
-    for (q, r) in locations:
-        store[(q, r)] = HexTile(Axial(q, r))
-
+    state = Game()
     hovered: HexTile | None = None
 
     while running:
@@ -166,18 +199,18 @@ def main() -> int:
         screen.fill(black)
 
         hovered = None
-        for (_, tile) in store.items():
-            tile.render(screen, offset)
+        for (_, tile) in state.store.items():
+            tile.render(screen, state.offset)
 
-            if tile.is_hover(offset):
+            if tile.is_hover(state.offset):
                 hovered = tile
 
         if hovered is not None:
-            line_from_origin = store[(0, 0)].coords.line(hovered.coords)
+            line_from_origin = state.store[(0, 0)].coords.line(hovered.coords)
             points: list[tuple[float, float]] = []
 
             for hex in line_from_origin:
-                points.append(hex.to_pixel(offset=offset))
+                points.append(hex.to_pixel(offset=state.offset))
 
             if len(points) >= 2:
                 pygame.draw.lines(screen, white, False, points, 3)
