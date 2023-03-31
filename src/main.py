@@ -1,6 +1,5 @@
-# TODO: Some sort of global game state manager - a singleton object that manages everything
-
 from math import sqrt, sin, cos, radians
+from heapq import heappop, heappush
 from typing import Generic, TypeVar, Any
 from dataclasses import dataclass
 
@@ -14,7 +13,7 @@ hex_height = hex_size * 3 / 2
 hex_spacing_horizontal = hex_width
 hex_spacing_vertical = hex_height
 
-camera_move_speed = 20
+camera_move_speed = 10
 world_width = 1280
 world_height = 960
 
@@ -35,7 +34,7 @@ def lerp(a: float, b: float, t: float) -> float:
     return a + (b - a) * t
 
 
-@dataclass(eq=True, unsafe_hash=True)
+@dataclass(eq=True, order=True, unsafe_hash=True)
 class Axial:
     " axial coordinates "
 
@@ -121,6 +120,11 @@ class HexTile:
     base_colour: tuple[int, int, int] = (0, 0, 0)
     hover_colour: tuple[int, int, int] = (0, 255, 0)
     border_colour: tuple[int, int, int] = (255, 255, 255)
+    obstacle_colour: tuple[int, int, int] = (255, 0, 0)
+
+    @property
+    def cost(self) -> int:
+        return 999 if self.obstacle else 1
 
     def is_hover(self) -> bool:
         return self.coords.pixel_to_hex(pygame.mouse.get_pos()) == self.coords
@@ -135,8 +139,8 @@ class HexTile:
 
         return verts
 
-    def reachable(self, movement: int = 1) -> set[Axial]:
-        " Tiles reachable from here within that movement "
+    def reachable(self, goal: Axial, movement: int = 10) -> bool:
+        " Tiles reachable from here within movement tiles "
 
         state = Game()
 
@@ -149,14 +153,19 @@ class HexTile:
             for hex in fringes[k - 1]:
                 for direction in range(6):
                     neighbour = hex.neighbour(direction)
-                    if (neighbour not in visited) and (not state.store[(int(neighbour.q), int(neighbour.r))].obstacle):
+                    exists = state.has_tile(neighbour)
+                    if exists and ((neighbour not in visited) and (not state.get_tile(neighbour).obstacle)):
                         visited.add(neighbour)
                         fringes[k].append(neighbour)
 
-        return visited
+        return goal.coords in visited
+
+    def toggle_obstacle(self) -> None:
+        self.obstacle = not self.obstacle
 
     def render(self, surface: pygame.Surface) -> None:
         colour = self.hover_colour if self.is_hover() else self.base_colour
+        colour = colour if not self.obstacle else self.obstacle_colour
         verts = self.vertices()
 
         pygame.draw.polygon(surface, colour, verts)
@@ -181,9 +190,50 @@ class Game(metaclass=Singleton):
         for (q, r) in locations:
             self.store[(q, r)] = HexTile(Axial(q, r))
 
+    def has_tile(self, coords: Axial) -> bool:
+        return self.store.get((coords.q, coords.r)) is not None
+
+    def get_tile(self, coords: Axial) -> HexTile:
+        return self.store[(coords.q, coords.r)]
+
     def add_offset(self, delta: tuple[float, float]) -> None:
         self.offset = (self.offset[0] + delta[0], self.offset[1] + delta[1])
-        print(self.offset)
+
+
+def astar_pathfinding(start: Axial, goal: Axial) -> list[Axial]:
+    def heuristic(a: Axial, b: Axial) -> float:
+        return a.distance(b)
+
+    def get_neighbours(tile: Axial) -> list[Axial]:  # TODO: filter out not real tiles here
+        return [tile.neighbour(i) for i in range(6)]
+
+    state = Game()
+    frontier = [(0, start)]
+    came_from = {}
+    cost_so_far = {start: 0}
+
+    while frontier:
+        _, current = heappop(frontier)
+
+        if current == goal:
+            break
+
+        for neighbour in get_neighbours(current):
+            if state.has_tile(neighbour):
+                new_cost = cost_so_far[current] + state.get_tile(neighbour).cost
+
+                if (neighbour not in cost_so_far) or (new_cost < cost_so_far[neighbour]):
+                    cost_so_far[neighbour] = new_cost
+                    priority = new_cost + heuristic(goal, neighbour)
+                    heappush(frontier, (priority, neighbour))
+                    came_from[neighbour] = current
+
+    path = [goal]
+    while path[-1] != start:
+        path.append(came_from[path[-1]])
+    path.reverse()
+
+    return path
 
 
 def is_quit_event(event: pygame.event.Event) -> bool:
@@ -199,12 +249,19 @@ def main() -> int:
     white = (255, 255, 255)
 
     state = Game()
+    origin = state.get_tile(Axial(0, 0))
     hovered: HexTile | None = None
 
     while running:
         for event in pygame.event.get():
             if is_quit_event(event):
                 running = False
+            
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                tile = Axial.pixel_to_hex(event.pos)
+                
+                if state.has_tile(tile):
+                    state.get_tile(tile).toggle_obstacle()
 
         screen.fill(black)
 
@@ -221,8 +278,8 @@ def main() -> int:
             if tile.is_hover():
                 hovered = tile
 
-        if hovered is not None:
-            line_from_origin = state.store[(0, 0)].coords.line(hovered.coords)
+        if (hovered is not None) and (not hovered.obstacle) and (origin.reachable(hovered)):
+            line_from_origin = astar_pathfinding(state.store[(0, 0)].coords, hovered.coords)
             points: list[tuple[float, float]] = []
 
             for hex in line_from_origin:
