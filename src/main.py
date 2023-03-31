@@ -158,7 +158,7 @@ class HexTile:
                         visited.add(neighbour)
                         fringes[k].append(neighbour)
 
-        return goal.coords in visited
+        return goal in visited
 
     def toggle_obstacle(self) -> None:
         self.obstacle = not self.obstacle
@@ -191,10 +191,10 @@ class Game(metaclass=Singleton):
             self.store[(q, r)] = HexTile(Axial(q, r))
 
     def has_tile(self, coords: Axial) -> bool:
-        return self.store.get((coords.q, coords.r)) is not None
+        return self.store.get((int(coords.q), int(coords.r))) is not None
 
     def get_tile(self, coords: Axial) -> HexTile:
-        return self.store[(coords.q, coords.r)]
+        return self.store[(int(coords.q), int(coords.r))]
 
     def add_offset(self, delta: tuple[float, float]) -> None:
         self.offset = (self.offset[0] + delta[0], self.offset[1] + delta[1])
@@ -208,7 +208,7 @@ def astar_pathfinding(start: Axial, goal: Axial) -> list[Axial]:
         return [tile.neighbour(i) for i in range(6)]
 
     state = Game()
-    frontier = [(0, start)]
+    frontier: list[tuple[float, Axial]] = [(0, start)]
     came_from = {}
     cost_so_far = {start: 0}
 
@@ -258,10 +258,10 @@ def main() -> int:
                 running = False
             
             if event.type == pygame.MOUSEBUTTONDOWN:
-                tile = Axial.pixel_to_hex(event.pos)
+                t = Axial.pixel_to_hex(event.pos)
                 
-                if state.has_tile(tile):
-                    state.get_tile(tile).toggle_obstacle()
+                if state.has_tile(t):
+                    state.get_tile(t).toggle_obstacle()
 
         screen.fill(black)
 
@@ -278,7 +278,7 @@ def main() -> int:
             if tile.is_hover():
                 hovered = tile
 
-        if (hovered is not None) and (not hovered.obstacle) and (origin.reachable(hovered)):
+        if (hovered is not None) and (not hovered.obstacle) and (origin.reachable(hovered.coords)):
             line_from_origin = astar_pathfinding(state.store[(0, 0)].coords, hovered.coords)
             points: list[tuple[float, float]] = []
 
