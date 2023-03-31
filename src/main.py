@@ -17,6 +17,11 @@ camera_move_speed = 10
 world_width = 1280
 world_height = 960
 
+offset_x_lower_bound = -(world_width // 2)
+offset_x_upper_bound = 0
+offset_y_lower_bound = -(world_height // 2)
+offset_y_upper_bouind = 0
+
 
 T = TypeVar("T")
 
@@ -195,9 +200,19 @@ class Game(metaclass=Singleton):
 
     def get_tile(self, coords: Axial) -> HexTile:
         return self.store[(int(coords.q), int(coords.r))]
+    
+    def clamp_offset(self) -> None:
+        self.offset = (
+            min(max(self.offset[0], offset_x_lower_bound), offset_x_upper_bound),
+            min(max(self.offset[1], offset_y_lower_bound), offset_y_upper_bouind)
+        )
 
     def add_offset(self, delta: tuple[float, float]) -> None:
         self.offset = (self.offset[0] + delta[0], self.offset[1] + delta[1])
+        self.clamp_offset()
+
+    def sub_offset(self, delta: tuple[float, float]) -> None:
+        self.add_offset((-delta[0], -delta[1]))
 
 
 def astar_pathfinding(start: Axial, goal: Axial) -> list[Axial]:
@@ -262,6 +277,10 @@ def main() -> int:
                 
                 if state.has_tile(t):
                     state.get_tile(t).toggle_obstacle()
+
+            if event.type == pygame.MOUSEMOTION:
+                if event.buttons[0]:  # left-click drag
+                    state.sub_offset(event.rel)
 
         screen.fill(black)
 
