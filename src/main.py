@@ -1,7 +1,7 @@
 # TODO: Some sort of global game state manager - a singleton object that manages everything
 
 from math import sqrt, sin, cos, radians
-from typing import Generic, TypeVar, Type, Any
+from typing import Generic, TypeVar, Any
 from dataclasses import dataclass
 
 import pygame
@@ -14,17 +14,21 @@ hex_height = hex_size * 3 / 2
 hex_spacing_horizontal = hex_width
 hex_spacing_vertical = hex_height
 
+camera_move_speed = 20
+world_width = 1280
+world_height = 960
+
 
 T = TypeVar("T")
 
-class Singleton(Generic[T], object):
-    _instance: T | None = None
-    
-    def __new__(cls: Type["Singleton[T]"], *args: Any, **kwargs: Any) -> "Singleton[T]":
-        if cls._instance is None:
-            cls._instance = super(Singleton, cls).__new__(cls, *args, **kwargs)
 
-        return cls._instance
+class Singleton(Generic[T], type):
+    def __init__(self: "Singleton[T]", __name: str, __bases: tuple[type, ...], __dict: dict[str, Any]) -> None:
+        super(Singleton, self).__init__(__name, __bases, __dict)
+        self._instance: T = super(Singleton, self).__call__()
+
+    def __call__(self: "Singleton[T]", *args: Any, **kwargs: Any) -> T:
+        return self._instance
 
 
 def lerp(a: float, b: float, t: float) -> float:
@@ -61,7 +65,8 @@ class Axial:
         return Axial(q, r)
 
     @staticmethod
-    def pixel_to_hex(point: tuple[float, float], *, offset: tuple[float, float] = (0, 0)) -> "Axial":
+    def pixel_to_hex(point: tuple[float, float]) -> "Axial":
+        offset = Game().offset
         px, py = (point[0] + offset[0]), (point[1] + offset[1])
         q = (sqrt(3) / 3 * px - 1 / 3 * py) / hex_size
         r = (2 / 3 * py) / hex_size
@@ -99,8 +104,8 @@ class Axial:
 
         return axials
 
-    def to_pixel(self, *, offset: tuple[float, float] = (0, 0)) -> tuple[float, float]:
-        ox, oy = offset
+    def to_pixel(self) -> tuple[float, float]:
+        ox, oy = Game().offset
 
         x = hex_size * (sqrt(3) * self.q + sqrt(3) / 2 * self.r) - ox
         y = hex_size * (3 / 2 * self.r) - oy
@@ -117,11 +122,11 @@ class HexTile:
     hover_colour: tuple[int, int, int] = (0, 255, 0)
     border_colour: tuple[int, int, int] = (255, 255, 255)
 
-    def is_hover(self, offset: tuple[float, float]) -> bool:
-        return self.coords.pixel_to_hex(pygame.mouse.get_pos(), offset=offset) == self.coords
+    def is_hover(self) -> bool:
+        return self.coords.pixel_to_hex(pygame.mouse.get_pos()) == self.coords
 
-    def vertices(self, offset: tuple[float, float]) -> list[tuple[float, float]]:
-        centerx, centery = self.coords.to_pixel(offset=offset)
+    def vertices(self) -> list[tuple[float, float]]:
+        centerx, centery = self.coords.to_pixel()
         verts: list[tuple[float, float]] = []
 
         for i in range(6):
@@ -150,17 +155,17 @@ class HexTile:
 
         return visited
 
-    def render(self, surface: pygame.Surface, offset: tuple[float, float]) -> None:
-        colour = self.hover_colour if self.is_hover(offset) else self.base_colour
-        verts = self.vertices(offset)
+    def render(self, surface: pygame.Surface) -> None:
+        colour = self.hover_colour if self.is_hover() else self.base_colour
+        verts = self.vertices()
 
         pygame.draw.polygon(surface, colour, verts)
         pygame.draw.polygon(surface, self.border_colour, verts, 2)
 
 
-class Game(Singleton):
+class Game(metaclass=Singleton):
     def __init__(self) -> None:
-        self.offset: tuple[float, float] = (-320, -240)
+        self.offset: tuple[float, float] = (-(world_width // 2), -(world_height // 2))
         self.store: dict[tuple[int, int], HexTile] = {}
 
         locations: list[tuple[int, int]] = [
@@ -176,6 +181,10 @@ class Game(Singleton):
         for (q, r) in locations:
             self.store[(q, r)] = HexTile(Axial(q, r))
 
+    def add_offset(self, delta: tuple[float, float]) -> None:
+        self.offset = (self.offset[0] + delta[0], self.offset[1] + delta[1])
+        print(self.offset)
+
 
 def is_quit_event(event: pygame.event.Event) -> bool:
     return (event.type == pygame.QUIT) or ((event.type == pygame.KEYDOWN) and (event.key == pygame.K_ESCAPE))
@@ -183,6 +192,7 @@ def is_quit_event(event: pygame.event.Event) -> bool:
 
 def main() -> int:
     screen = pygame.display.set_mode((640, 480))
+    clock = pygame.time.Clock()
     running = True
 
     black = (0, 0, 0)
@@ -198,11 +208,17 @@ def main() -> int:
 
         screen.fill(black)
 
+        pressed = pygame.key.get_pressed()
+        dx = camera_move_speed * (pressed[pygame.K_d] - pressed[pygame.K_a])
+        dy = camera_move_speed * (pressed[pygame.K_s] - pressed[pygame.K_w])
+
+        state.add_offset((dx, dy))
+
         hovered = None
         for (_, tile) in state.store.items():
-            tile.render(screen, state.offset)
+            tile.render(screen)
 
-            if tile.is_hover(state.offset):
+            if tile.is_hover():
                 hovered = tile
 
         if hovered is not None:
@@ -210,12 +226,13 @@ def main() -> int:
             points: list[tuple[float, float]] = []
 
             for hex in line_from_origin:
-                points.append(hex.to_pixel(offset=state.offset))
+                points.append(hex.to_pixel())
 
             if len(points) >= 2:
                 pygame.draw.lines(screen, white, False, points, 3)
 
         pygame.display.flip()
+        clock.tick(60)
 
     pygame.quit()
 
