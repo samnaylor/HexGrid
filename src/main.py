@@ -13,15 +13,6 @@ hex_height = hex_size * 3 / 2
 hex_spacing_horizontal = hex_width
 hex_spacing_vertical = hex_height
 
-camera_move_speed = 10
-world_width = 1280
-world_height = 960
-
-offset_x_lower_bound = -(world_width // 2)
-offset_x_upper_bound = 0
-offset_y_lower_bound = -(world_height // 2)
-offset_y_upper_bouind = 0
-
 
 T = TypeVar("T")
 
@@ -46,20 +37,15 @@ class Axial:
     q: float
     r: float
 
-    def to_cube(self) -> tuple[float, float, float]:
-        return (self.q, self.r, -(self.q + self.r))
-
     @staticmethod
     def round(axial: "Axial") -> "Axial":
-        cube = axial.to_cube()
+        q = round(axial.q)
+        r = round(axial.r)
+        s = round(-(axial.q + axial.r))
 
-        q = round(cube[0])
-        r = round(cube[1])
-        s = round(cube[2])
-
-        dq = abs(q - cube[0])
-        dr = abs(r - cube[1])
-        ds = abs(s - cube[2])
+        dq = abs(q - axial.q)
+        dr = abs(r - axial.r)
+        ds = abs(s - -(axial.q + axial.r))
 
         if (dq > dr) and (dq > ds):
             q = -(r + s)
@@ -70,8 +56,7 @@ class Axial:
 
     @staticmethod
     def pixel_to_hex(point: tuple[float, float]) -> "Axial":
-        offset = Game().offset
-        px, py = (point[0] + offset[0]), (point[1] + offset[1])
+        px, py = point[0] - 320, point[1] - 240
         q = (sqrt(3) / 3 * px - 1 / 3 * py) / hex_size
         r = (2 / 3 * py) / hex_size
 
@@ -109,10 +94,8 @@ class Axial:
         return axials
 
     def to_pixel(self) -> tuple[float, float]:
-        ox, oy = Game().offset
-
-        x = hex_size * (sqrt(3) * self.q + sqrt(3) / 2 * self.r) - ox
-        y = hex_size * (3 / 2 * self.r) - oy
+        x = hex_size * (sqrt(3) * self.q + sqrt(3) / 2 * self.r) + 320
+        y = hex_size * (3 / 2 * self.r) + 240
 
         return (x, y)
 
@@ -179,7 +162,6 @@ class HexTile:
 
 class Game(metaclass=Singleton):
     def __init__(self) -> None:
-        self.offset: tuple[float, float] = (-(world_width // 2), -(world_height // 2))
         self.store: dict[tuple[int, int], HexTile] = {}
 
         locations: list[tuple[int, int]] = [
@@ -201,26 +183,13 @@ class Game(metaclass=Singleton):
     def get_tile(self, coords: Axial) -> HexTile:
         return self.store[(int(coords.q), int(coords.r))]
 
-    def clamp_offset(self) -> None:
-        self.offset = (
-            min(max(self.offset[0], offset_x_lower_bound), offset_x_upper_bound),
-            min(max(self.offset[1], offset_y_lower_bound), offset_y_upper_bouind)
-        )
-
-    def add_offset(self, delta: tuple[float, float]) -> None:
-        self.offset = (self.offset[0] + delta[0], self.offset[1] + delta[1])
-        self.clamp_offset()
-
-    def sub_offset(self, delta: tuple[float, float]) -> None:
-        self.add_offset((-delta[0], -delta[1]))
-
 
 def astar_pathfinding(start: Axial, goal: Axial) -> list[Axial]:
     def heuristic(a: Axial, b: Axial) -> float:
         return a.distance(b)
 
-    def get_neighbours(tile: Axial) -> list[Axial]:  # TODO: filter out not real tiles here
-        return [tile.neighbour(i) for i in range(6)]
+    def get_neighbours(tile: Axial) -> list[Axial]:
+        return filter(lambda t: Game().has_tile(t), [tile.neighbour(i) for i in range(6)])
 
     state = Game()
     frontier: list[tuple[float, Axial]] = [(0, start)]
@@ -278,17 +247,7 @@ def main() -> int:
                 if state.has_tile(t):
                     state.get_tile(t).toggle_obstacle()
 
-            if event.type == pygame.MOUSEMOTION:
-                if event.buttons[0]:  # left-click drag
-                    state.sub_offset(event.rel)
-
         screen.fill(black)
-
-        pressed = pygame.key.get_pressed()
-        dx = camera_move_speed * (pressed[pygame.K_d] - pressed[pygame.K_a])
-        dy = camera_move_speed * (pressed[pygame.K_s] - pressed[pygame.K_w])
-
-        state.add_offset((dx, dy))
 
         hovered = None
         for (_, tile) in state.store.items():
