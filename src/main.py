@@ -105,7 +105,9 @@ class HexTile:
     coords: Axial
     obstacle: bool = False
 
+    origin: bool = False
     base_colour: tuple[int, int, int] = (0, 0, 0)
+    origin_colour: tuple[int, int, int] = (0, 0, 255)
     hover_colour: tuple[int, int, int] = (0, 255, 0)
     border_colour: tuple[int, int, int] = (255, 255, 255)
     obstacle_colour: tuple[int, int, int] = (255, 0, 0)
@@ -152,7 +154,7 @@ class HexTile:
         self.obstacle = not self.obstacle
 
     def render(self, surface: pygame.Surface) -> None:
-        colour = self.hover_colour if self.is_hover() else self.base_colour
+        colour = self.origin_colour if self.origin else (self.hover_colour if self.is_hover() else self.base_colour)
         colour = colour if not self.obstacle else self.obstacle_colour
         verts = self.vertices()
 
@@ -233,13 +235,26 @@ def main() -> int:
     white = (255, 255, 255)
 
     state = Game()
-    origin = state.get_tile(Axial(0, 0))
+    origin: HexTile | None = None
     hovered: HexTile | None = None
 
     while running:
         for event in pygame.event.get():
             if is_quit_event(event):
                 running = False
+
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_1:
+                    t = Axial.pixel_to_hex(pygame.mouse.get_pos())
+
+                    if state.has_tile(t):
+                        tile = state.get_tile(t)
+                        if not tile.obstacle:
+                            if origin is not None:
+                                origin.origin = False
+
+                            origin = tile
+                            tile.origin = True
 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 t = Axial.pixel_to_hex(event.pos)
@@ -256,8 +271,8 @@ def main() -> int:
             if tile.is_hover():
                 hovered = tile
 
-        if (hovered is not None) and (not hovered.obstacle) and (origin.reachable(hovered.coords)):
-            line_from_origin = astar_pathfinding(state.store[(0, 0)].coords, hovered.coords)
+        if (origin is not None) and (hovered is not None) and (not hovered.obstacle) and (origin.reachable(hovered.coords)):
+            line_from_origin = astar_pathfinding(origin.coords, hovered.coords)
             points: list[tuple[float, float]] = []
 
             for hex in line_from_origin:
