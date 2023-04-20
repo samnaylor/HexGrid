@@ -200,7 +200,7 @@ class Game(metaclass=Singleton):
 
     def get_tile(self, coords: Axial) -> HexTile:
         return self.store[(int(coords.q), int(coords.r))]
-    
+
     def clamp_offset(self) -> None:
         self.offset = (
             min(max(self.offset[0], offset_x_lower_bound), offset_x_upper_bound),
@@ -271,10 +271,10 @@ def main() -> int:
         for event in pygame.event.get():
             if is_quit_event(event):
                 running = False
-            
+
             if event.type == pygame.MOUSEBUTTONDOWN:
                 t = Axial.pixel_to_hex(event.pos)
-                
+
                 if state.has_tile(t):
                     state.get_tile(t).toggle_obstacle()
 
