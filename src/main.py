@@ -237,6 +237,7 @@ def astar_pathfinding(tilemap: dict[Axial, Tile], origin: Tile, goal: Tile, *, m
     moves_required = 0
     available = movement
 
+    # TODO: Fix this algorithm - it's not always correct
     for tile in wanttiles:
         if tile.cost > available:
             moves_required += 1
@@ -289,18 +290,27 @@ def generate_tilemap() -> dict[Axial, Tile]:
     return dict((coord, Tile(coord)) for coord in test_tiles)
 
 
+def unit_on_tile(units: list[Unit], coord: Axial) -> bool:
+    for unit in units:
+        if unit.coords == coord:
+            return True
+    return False
+
+
 def main() -> int:
     screen = pygame.display.set_mode((window_width, window_height))
     clock = pygame.time.Clock()
     running = True
 
     tilemap = generate_tilemap()
-    unit = Unit(Axial(-2, -1), movement=5)
+
+    units = [Unit(Axial(-2, -1), movement=5), Unit(Axial(2, 1), movement=8)]
+    selected: Unit | None = None
 
     text = gamefont.render("Press enter to re-roll tile costs.", True, (255, 255, 255))
     rect = text.get_rect(topleft=(20, 20))
 
-    text2 = gamefont.render(f"Unit Movement: {unit.movement}", True, (255, 255, 255))
+    text2 = gamefont.render("Unit Movement: N/A", True, (255, 255, 255))
     rect2 = text2.get_rect(topleft=(20, 50))
 
     text3 = gamefont.render("Green - 'moveable', red - 'desired'", True, (255, 255, 255))
@@ -322,32 +332,44 @@ def main() -> int:
                 if event.button == 1:
                     pos = pygame.mouse.get_pos()
                     coord = Axial.from_pixel(pos)
-                    if unit.selected and (coord != unit.coords) and (coord in tilemap.keys()):
-                        unit.move_to(tilemap, tilemap[coord])
-                    elif (not unit.selected) and (coord == unit.coords):
-                        unit.selected = True
-                    else:
-                        unit.selected = False
+                    for unit in units:
+                        if unit.selected:
+                            if coord == unit.coords:  # deselect by clicking same tile as selected
+                                selected = None
+                                unit.selected = False
+                            elif not unit_on_tile(units, coord):  # move to empty tile
+                                unit.move_to(tilemap, tilemap[coord])
+                            else:  # deselect by clicking elsewhere
+                                selected = None
+                                unit.selected = False
+                        else:
+                            if coord == unit.coords:  # select new unit - remove previous selection if applicable
+                                if selected is not None:
+                                    selected.selected = False
+                                selected = unit
+                                unit.selected = True
 
         screen.fill((0, 0, 0))
-
-        for (t, r) in [(text, rect), (text2, rect2), (text3, rect3)]:
-            screen.blit(t, r)
 
         for tile in tilemap.values():
             tile.render(screen)
 
-        unit.render(screen)
+        for unit in units:
+            unit.render(screen)
 
-        if unit.selected:
+        if selected is not None:
+            text2 = gamefont.render(f"Unit Movement: {selected.movement}", True, (255, 255, 255))
             goal = Axial.from_pixel(pygame.mouse.get_pos())
-            if (goal in tilemap.keys()) and (goal != unit.coords):
-                moveable, dream, moves_required = astar_pathfinding(tilemap, tilemap[unit.coords], tilemap[goal], movement=unit.movement)
+            if (goal in tilemap.keys()) and (goal != selected.coords):
+                moveable, dream, moves_required = astar_pathfinding(tilemap, tilemap[selected.coords], tilemap[goal], movement=selected.movement)
                 draw_path(screen, dream, (255, 0, 0))
                 draw_path(screen, moveable, (0, 255, 0))
 
                 moves_to_selected = gamefont.render(f"Moves to selected: {moves_required}", True, (255, 255, 255))
                 screen.blit(moves_to_selected, moves_to_selected_rect)
+
+        for (t, r) in [(text, rect), (text2, rect2), (text3, rect3)]:
+            screen.blit(t, r)
 
         pygame.display.flip()
         clock.tick(60)
