@@ -67,7 +67,7 @@ class Axial:
         elif (dr > ds):
             r = -(q + s)
 
-        return (q, r)
+        return Axial(q, r)
 
     def to_pixel(self) -> tuple[float, float]:
         x = hex_size * (sqrt(3) * self.q + sqrt(3) / 2 * self.r) - render_offset[0]
@@ -236,6 +236,29 @@ def astar_pathfinding(tilemap: dict[Axial, Tile], origin: Tile, goal: Tile, *, m
 # endregion
 
 
+# region Unit
+
+class Unit:
+    def __init__(self, coords: Axial, movement: int) -> None:
+        self.coords = coords
+        self.movement = movement
+
+        self.selected = False
+
+    def move_to(self, tilemap: dict[Axial, Tile], goal: Tile) -> None:
+        moveable, _ = astar_pathfinding(tilemap, tilemap[self.coords], goal, movement=self.movement)
+        self.coords = moveable[-1].coords
+
+    def render(self, surface: pygame.Surface) -> None:
+        centerx, centery = self.coords.to_pixel()
+        pygame.draw.rect(surface, (0, 255, 0), (centerx - hex_size // 2, centery - hex_size // 2, hex_size, hex_size))
+
+        if self.selected:
+            pygame.draw.rect(surface, (0, 0, 0), (centerx - hex_size // 2, centery - hex_size // 2, hex_size, hex_size), 4)
+
+# endregion
+
+
 # region entrypoint
 
 def is_quit_event(event: pygame.event.Event) -> bool:
@@ -268,8 +291,7 @@ def main() -> int:
     rect3 = text3.get_rect(topleft=(20, 80))
 
     tilemap = generate_tilemap()
-    origin = tilemap[Axial(-2, -1)]
-    goal = tilemap[Axial(2, 1)]
+    unit = Unit(Axial(-2, -1), movement=5)
 
     while running:
         for event in pygame.event.get():
@@ -280,6 +302,17 @@ def main() -> int:
                 if event.key == pygame.K_RETURN:
                     tilemap = generate_tilemap()
 
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    pos = pygame.mouse.get_pos()
+                    coord = Axial.from_pixel(pos)
+                    if unit.selected and (coord != unit.coords) and (coord in tilemap.keys()):
+                        unit.move_to(tilemap, tilemap[coord])
+                    elif (not unit.selected) and (coord == unit.coords):
+                        unit.selected = True
+                    else:
+                        unit.selected = False
+
         screen.fill((0, 0, 0))
 
         for (t, r) in [(text, rect), (text2, rect2), (text3, rect3)]:
@@ -288,9 +321,14 @@ def main() -> int:
         for tile in tilemap.values():
             tile.render(screen)
 
-        moveable, dream = astar_pathfinding(tilemap, origin, goal, movement=10)
-        draw_path(screen, dream, (255, 0, 0))
-        draw_path(screen, moveable, (0, 255, 0))
+        unit.render(screen)
+
+        if unit.selected:
+            goal = Axial.from_pixel(pygame.mouse.get_pos())
+            if (goal in tilemap.keys()) and (goal != unit.coords):
+                moveable, dream = astar_pathfinding(tilemap, tilemap[unit.coords], tilemap[goal], movement=unit.movement)
+                draw_path(screen, dream, (255, 0, 0))
+                draw_path(screen, moveable, (0, 255, 0))
 
         pygame.display.flip()
         clock.tick(60)
