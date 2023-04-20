@@ -185,7 +185,7 @@ def draw_path(surface: pygame.Surface, path: list[Tile], colour: tuple[int, int,
 
 # region A*
 
-def astar_pathfinding(tilemap: dict[Axial, Tile], origin: Tile, goal: Tile, *, movement: int = 10) -> tuple[list[Tile], list[Tile]]:
+def astar_pathfinding(tilemap: dict[Axial, Tile], origin: Tile, goal: Tile, *, movement: int = 10) -> tuple[list[Tile], list[Tile], int]:
     def heuristic(a: Axial, b: Axial) -> float:
         return a.dist(b)
 
@@ -231,7 +231,20 @@ def astar_pathfinding(tilemap: dict[Axial, Tile], origin: Tile, goal: Tile, *, m
         if k >= len(path):
             break
 
-    return [tilemap[c] for c in moveable], [tilemap[c] for c in path]
+    movetiles = [tilemap[c] for c in moveable]
+    wanttiles = [tilemap[c] for c in path]
+
+    moves_required = 0
+    available = movement
+
+    for tile in wanttiles:
+        if tile.cost > available:
+            moves_required += 1
+            available = movement - tile.cost
+        else:
+            available -= tile.cost
+
+    return movetiles, wanttiles, moves_required
 
 # endregion
 
@@ -246,7 +259,7 @@ class Unit:
         self.selected = False
 
     def move_to(self, tilemap: dict[Axial, Tile], goal: Tile) -> None:
-        moveable, _ = astar_pathfinding(tilemap, tilemap[self.coords], goal, movement=self.movement)
+        moveable, _, _ = astar_pathfinding(tilemap, tilemap[self.coords], goal, movement=self.movement)
         self.coords = moveable[-1].coords
 
     def render(self, surface: pygame.Surface) -> None:
@@ -281,17 +294,20 @@ def main() -> int:
     clock = pygame.time.Clock()
     running = True
 
+    tilemap = generate_tilemap()
+    unit = Unit(Axial(-2, -1), movement=5)
+
     text = gamefont.render("Press enter to re-roll tile costs.", True, (255, 255, 255))
     rect = text.get_rect(topleft=(20, 20))
 
-    text2 = gamefont.render("Total movement: 10 (going top left to bottom right)", True, (255, 255, 255))
+    text2 = gamefont.render(f"Unit Movement: {unit.movement}", True, (255, 255, 255))
     rect2 = text2.get_rect(topleft=(20, 50))
 
     text3 = gamefont.render("Green - 'moveable', red - 'desired'", True, (255, 255, 255))
     rect3 = text3.get_rect(topleft=(20, 80))
 
-    tilemap = generate_tilemap()
-    unit = Unit(Axial(-2, -1), movement=5)
+    moves_to_selected = gamefont.render("Moves to selected: N/A", True, (255, 255, 255))
+    moves_to_selected_rect = moves_to_selected.get_rect(bottomleft=(20, 460))
 
     while running:
         for event in pygame.event.get():
@@ -326,9 +342,12 @@ def main() -> int:
         if unit.selected:
             goal = Axial.from_pixel(pygame.mouse.get_pos())
             if (goal in tilemap.keys()) and (goal != unit.coords):
-                moveable, dream = astar_pathfinding(tilemap, tilemap[unit.coords], tilemap[goal], movement=unit.movement)
+                moveable, dream, moves_required = astar_pathfinding(tilemap, tilemap[unit.coords], tilemap[goal], movement=unit.movement)
                 draw_path(screen, dream, (255, 0, 0))
                 draw_path(screen, moveable, (0, 255, 0))
+
+                moves_to_selected = gamefont.render(f"Moves to selected: {moves_required}", True, (255, 255, 255))
+                screen.blit(moves_to_selected, moves_to_selected_rect)
 
         pygame.display.flip()
         clock.tick(60)
